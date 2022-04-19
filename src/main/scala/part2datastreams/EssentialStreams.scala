@@ -1,9 +1,12 @@
 package part2datastreams
 
+import org.apache.flink.api.common.functions.{FlatMapFunction, MapFunction, ReduceFunction}
 import org.apache.flink.api.common.serialization.SimpleStringEncoder
 import org.apache.flink.core.fs.Path
+import org.apache.flink.streaming.api.functions.ProcessFunction
 import org.apache.flink.streaming.api.functions.sink.filesystem.StreamingFileSink
 import org.apache.flink.streaming.api.scala._
+import org.apache.flink.util.Collector
 
 object EssentialStreams {
 
@@ -89,9 +92,49 @@ object EssentialStreams {
     env.execute()
   }
 
+  def demoExplicitTransformations(): Unit = {
+    val env: StreamExecutionEnvironment = StreamExecutionEnvironment.getExecutionEnvironment
+    val numbers= env.fromSequence(0, 100)
 
+    // map
+    val doubledNumbers = numbers.map(new MapFunction[Long, Long] {
+      // declare fields, methods, ...
+      override def map(value: Long): Long = value * 2
+    })
+
+    val expandedNumbers_v2 = numbers.flatMap(new FlatMapFunction[Long, Long] {
+      override def flatMap(n: Long, out: Collector[Long]): Unit =
+        Range.Long(1, n, 1).foreach { i =>
+          out.collect(i) // imperative - pushes the new element downstream
+        }
+    })
+
+    // process method
+    // ProcessFunction is the most general function to process elements in flink
+    val expandedNumbers_v3 = numbers.process(new ProcessFunction[Long, Long] {
+      override def processElement(n: Long, ctx: ProcessFunction[Long, Long]#Context, out: Collector[Long]): Unit =
+        Range.Long(1, n, 1).foreach { i =>
+          out.collect(i) // imperative - pushes the new element downstream
+        }
+    })
+
+    // reduce
+    // happens on keyed streams
+    val keyedNumbers: KeyedStream[Long, Boolean] = numbers.keyBy(n => n % 2 == 0)
+
+    // reduce by FP approach
+    val sumByKey = keyedNumbers.reduce(_ + _) // sum all elements by key
+
+    // reduce - explicit approach
+    val sumByKey_v2 = keyedNumbers.reduce(new ReduceFunction[Long] {
+      override def reduce(value1: Long, value2: Long): Long = value1 + value2
+    })
+
+    sumByKey_v2.print()
+    env.execute()
+  }
 
   def main(args: Array[String]): Unit = {
-    fizzBuzz()
+    demoExplicitTransformations()
   }
 }
